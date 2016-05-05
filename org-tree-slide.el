@@ -414,9 +414,10 @@ Profiles:
   "Display the next slide"
   (interactive)
   (when (org-tree-slide--active-p)
+    (run-hooks 'org-tree-slide-on-slide-cleanup)
     (when last-cleanup-code
-      (my-eval-string last-cleanup-code)
-      (setq last-cleanup-code nil))
+      (my-eval-string org-tree-slide-last-slide-cleanup-code)
+      (setq org-tree-slide-last-slide-cleanup-code nil))
     (unless (equal org-tree-slide-modeline-display 'outside)
       (message "   Next >>"))
     (cond
@@ -444,9 +445,10 @@ Profiles:
   (when (org-tree-slide--active-p)
     (unless (equal org-tree-slide-modeline-display 'outside)
       (message "<< Previous"))
-    (when last-cleanup-code
-      (my-eval-string last-cleanup-code)
-      (setq last-cleanup-code nil))
+    (run-hooks 'org-tree-slide-on-slide-cleanup)
+    (when org-tree-slide-last-slide-cleanup-code
+      (my-eval-string org-tree-slide-last-slide-cleanup-code)
+      (setq org-tree-slide-last-slide-cleanup-code nil))
     (org-tree-slide--hide-slide-header)		; for at the first heading
     (run-hooks 'org-tree-slide-before-move-previous-hook)
     (widen)
@@ -471,10 +473,18 @@ Profiles:
   "Lighter for org-tree-slide.
 This is displayed by default if `org-tree-slide-modeline-display' is `nil'.")
 
-(defvar code-overlays nil)
-(defvar last-cleanup-code nil)
-(defvar current-slide-flow-code nil)
+(defvar org-tree-slide-on-slide-enter nil
+  "Run this code on the beginning of every slide")
 
+(defvar org-tree-slide-on-slide-flow nil
+  "Run this code when slide shows")
+
+(defvar org-tree-slide-on-slide-cleanup nil
+  "Run this code to cleanup a slide")
+
+(defvar org-tree-slide-code-block-overlays nil)
+(defvar org-tree-slide-last-slide-cleanup-code nil)
+(defvar org-tree-slide-current-slide-flow-code nil)
 
 (defun my-eval-string (string)
   (eval (car (read-from-string (format "(progn %s)" string)))))
@@ -551,8 +561,8 @@ This is displayed by default if `org-tree-slide-modeline-display' is `nil'.")
   ;;  (when (and org-tree-slide-skip-done (looking-at (concat "^\\*+ " org-not-done-regexp))) (when (org-clocking-p) (org-clock-out) ) )
   (run-hooks 'org-tree-slide-mode-stop-hook)
   (run-hooks 'org-tree-slide-stop-hook)
-  code-overlays
-  (dolist (i code-overlays)
+  org-tree-slide-code-block-overlays
+  (dolist (i org-tree-slide-code-block-overlays)
     (overlay-put i 'invisible nil))
   (when org-tree-slide-deactivate-message
     (message "%s" org-tree-slide-deactivate-message)))
@@ -583,32 +593,36 @@ This is displayed by default if `org-tree-slide-modeline-display' is `nil'.")
     (org-tree-slide--show-slide-header))
   (run-hooks 'org-tree-slide-after-narrow-hook)
   (run-hooks 'org-tree-slide-mode-after-narrow-hook)
-  (when current-slide-flow-code
-    (let ((code current-slide-flow-code))
-      (setq current-slide-flow-code nil)
-      (let ((r (catch :terminate (my-eval-string code))))
-        (cond
-         ((functionp r) (funcall r))
-         ((stringp r)   (message r)))))))
+  (let ((extra-code org-tree-slide-current-slide-flow-code))
+    (setq org-tree-slide-current-slide-flow-code nil)
+    (let ((r (catch :terminate (progn
+                                 (run-hooks 'org-tree-slide-on-slide-flow)
+                                 (when extra-code
+                                   (my-eval-string extra-code))))))
+      (cond
+       ((functionp r) (funcall r))
+       ((stringp r)   (message r))))))
 
 (defun after-narrow-before-animation ()
   (save-excursion
-    (setq current-slide-flow-code nil)
+    (setq org-tree-slide-current-slide-flow-code nil)
     (let ((cur-level (org-outline-level)))
       (goto-char (point-min))
-      (when (and (re-search-forward "\\#\\+BEGIN_SRC.*:control enter " nil 't)
+
+      (if (and (re-search-forward "\\#\\+BEGIN_SRC.*:control enter " nil 't)
                  (eq cur-level (org-outline-level)))
         (let* ((elem (org-element-at-point))
                (ol     (make-overlay (org-element-property :begin elem)
                                      (org-element-property :end   elem))))
           (overlay-put ol 'invisible t)
-          (add-to-list 'code-overlays ol)
-          ;;(org-babel-execute-src-block elem)
+          (add-to-list 'org-tree-slide-code-block-overlays ol)
 
-          (my-eval-string (org-element-property :value elem))
+          ;; custom slide code found, execute global slide-enter code and then it
+          (run-hooks 'org-tree-slide-on-slide-enter)
+          (my-eval-string (org-element-property :value elem)))
 
-          )
-        )
+        ;; no custon slide code found, execute global only
+        (run-hooks 'org-tree-slide-on-slide-enter))
 
       (goto-char (point-min))
       (when (and (re-search-forward "\\#\\+BEGIN_SRC.*:control flow " nil 't)
@@ -617,8 +631,8 @@ This is displayed by default if `org-tree-slide-modeline-display' is `nil'.")
                (ol     (make-overlay (org-element-property :begin elem)
                                      (org-element-property :end   elem))))
           (overlay-put ol 'invisible t)
-          (add-to-list 'code-overlays ol)
-          (setq current-slide-flow-code (org-element-property :value elem))
+          (add-to-list 'org-tree-slide-code-block-overlays ol)
+          (setq org-tree-slide-current-slide-flow-code (org-element-property :value elem))
           )
         )
 
@@ -629,14 +643,14 @@ This is displayed by default if `org-tree-slide-modeline-display' is `nil'.")
                (ol     (make-overlay (org-element-property :begin elem)
                                      (org-element-property :end   elem))))
           (overlay-put ol 'invisible t)
-          (add-to-list 'code-overlays ol)
+          (add-to-list 'org-tree-slide-code-block-overlays ol)
 
-          (setq last-cleanup-code
+          (setq org-tree-slide-last-slide-cleanup-code
                 (concat
                  (org-element-property :value elem)
-                 "(dolist (i code-overlays)
+                 "(dolist (i org-tree-slide-code-block-overlays)
                     (overlay-put i 'invisible nil))
-                  (setq code-overlays nil)"))
+                  (setq org-tree-slide-code-block-overlays nil)"))
           )
         )))
   (goto-char (point-min)))
@@ -939,6 +953,12 @@ concat the headers."
       (outline-previous-heading)      ;go to previous heading
       (org-tree-slide--beginning-of-tree)) ;recursion until a visible heading is found
     )) ; return position or nil.
+
+(defun test-me ()
+  (interactive)
+  (outline-next-heading)
+  (forward-line -1)
+  )
 
 (provide 'org-tree-slide)
 
