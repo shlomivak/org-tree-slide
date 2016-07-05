@@ -415,9 +415,9 @@ Profiles:
   (interactive)
   (when (org-tree-slide--active-p)
     (run-hooks 'org-tree-slide--on-slide-cleanup)
-    (when last-cleanup-code
-      (my-eval-string org-tree-slide-last-slide-cleanup-code)
-      (setq org-tree-slide-last-slide-cleanup-code nil))
+    (when org-tree-slide--last-slide-cleanup-code
+      (my-eval-string org-tree-slide--last-slide-cleanup-code)
+      (setq org-tree-slide--last-slide-cleanup-code nil))
     (unless (equal org-tree-slide-modeline-display 'outside)
       (message "   Next >>"))
     (cond
@@ -446,7 +446,7 @@ Profiles:
     (unless (equal org-tree-slide-modeline-display 'outside)
       (message "<< Previous"))
     (run-hooks 'org-tree-slide--on-slide-cleanup)
-    (when org-tree-slide-last-slide-cleanup-code
+    (when org-tree-slide--last-slide-cleanup-code
       (my-eval-string org-tree-slide--last-slide-cleanup-code)
       (setq org-tree-slide--last-slide-cleanup-code nil))
     (org-tree-slide--hide-slide-header)		; for at the first heading
@@ -636,7 +636,7 @@ This is displayed by default if `org-tree-slide-modeline-display' is `nil'.")
                                      (org-element-property :end   elem))))
           (overlay-put ol 'invisible t)
           (add-to-list 'org-tree-slide--code-block-overlays ol)
-          (setq org-tree-slide-current-slide-flow-code (org-element-property :value elem))
+          (setq org-tree-slide--current-slide-flow-code (org-element-property :value elem))
           )
         )
 
@@ -652,9 +652,9 @@ This is displayed by default if `org-tree-slide-modeline-display' is `nil'.")
           (setq org-tree-slide--last-slide-cleanup-code
                 (concat
                  (org-element-property :value elem)
-                 "(dolist (i org-tree-slide-code-block-overlays)
+                 "(dolist (i org-tree-slide--code-block-overlays)
                     (overlay-put i 'invisible nil))
-                  (setq org-tree-slide-code-block-overlays nil)"))
+                  (setq org-tree-slide--code-block-overlays nil)"))
           )
         )))
   (goto-char (point-min)))
